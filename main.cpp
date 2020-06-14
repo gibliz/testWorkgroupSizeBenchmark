@@ -1,5 +1,8 @@
 // main.cpp 
-// Testing OpenCL workgroupsize parameter in enqueueNDRangeKernel() for speed
+// Testing OpenCL WorkgroupSize parameter in enqueueNDRangeKernel() for calculation performance
+
+// TODO: добавить проходку по разным значениям параметра WorkgroupSize
+// TODO: добавить автом определение кол-ва циклов бенчмарка на основе длительности
 
 #pragma comment(lib, "opencl.lib")
 #define __CL_ENABLE_EXCEPTIONS
@@ -346,7 +349,7 @@ void prepareClDevices() {
     for (int i = 0; i < clDevices.size(); i++ ) {
         cl::Device dev = clDevices[i];
         ClDeviceBenchmarkData clDevData;
-        clDevData.nMaxWorkgoupSize = dev.getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>();
+        clDevData.nMaxWorkgoupSize = static_cast<unsigned>(dev.getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>());
 
         // create context for device
         vector<cl::Device> contextDevices;
