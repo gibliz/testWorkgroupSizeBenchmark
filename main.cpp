@@ -23,7 +23,8 @@ using namespace std;
 /// <summary>
 /// Struct for storing OpenCL device data for benchmarking.
 /// </summary>
-struct CLDeviceBenchmarkData {
+struct ClDeviceBenchmarkData {
+    unsigned nMaxWorkgoupSize;
     cl::Context* pContext;
     cl::CommandQueue* pCmdQueue;
     cl::Kernel* pKernel;
@@ -37,17 +38,16 @@ const unsigned DATA_SIZE = 20 * (1 << 20);                      // about 20M ite
 const unsigned int KERNEL_BENCHMARK_LOOPS = 200;                // number of kernel benchmarks on OpenCL device
 
                                                       
-// functions prototypes
 void getClDevices();                                                // get all OpenCL devices installed in the system
 int chooseClDevice();                                               // let user select OpenCL device to benchmark
-void printClDeviceInfo(cl::Device oclDevice);                       // print OpenCL device info
+void printClDeviceInfo(int iDev);                                   // print OpenCL device info
 int getNvCudaCoresPerSm(cl_uint verMajor, cl_uint verMinor);        // get number of NVidia CUDA cores per one streaming multiprocessor (SM)
-void benchmarkClDevice(cl::Device oclDevice);                       // do single OpenCL device benchmark (top-level function)
-void prepareClDeviceForBenchmark(cl::Device dev);                   // make OpenCL preparations for benchmark
-void cleanupClDeviceAfterBenchmark();                               // cleanup OpenCL device associated data after benchmark
+void benchmarkClDevice(int iDev);                                   // do single OpenCL device benchmark (top-level function)
+void cleanupClDevices();                                            // cleanup OpenCL devices data
 void getBenchTimes(vector<double>& timeValues,
     double& minTime, double& maxTime, double& avgTime);             // get benchmark times
 void prepareTestData();                                             // prepare data for benchmark
+void prepareClDevices();                                            // prepare OpenCL devices for benchmark
 void freeTestData();                                                // free memory allocated for benchmark
 string formatMemSizeInfo(cl_ulong ms);                              // format memory size to user-friendly string
 string removeMultiSpaces(string s);                                 // remove multiple spaces in string
@@ -58,36 +58,38 @@ float* pInputVector1;                                               // benchmark
 float* pInputVector2;                                               // benchmark input data 2
 float* pOutputVector;                                               // benchmark output data
 vector <cl::Device> clDevices;                                      // list of all OpenCL devices installed in the system
-CLDeviceBenchmarkData clDevData;                                    // OpenCL device data used for benchmarking
+vector <ClDeviceBenchmarkData> clDevicesData;                       // OpenCL devices data used for benchmarking
 GQPC_Timer qpc_timer;                                               // high definition timer for benchmark measurements
 
 // main() funcion =================================================================================
 int main() {
     // greetings to user
-    cout << "WorkGroupSize benchmark application\n\n";
+    cout << "OpenCL benchmark: how WorkGroupSize parameter affects calculation performance\n\n";
 
-    // prepare memory and test data
-    cout << "Preparing test data for benchmark...";
-    prepareTestData();
-    cout << "done\n";
+    // prepare memory and test data    
+    prepareTestData();    
 
     // get all OpenCL devices in the system 
     getClDevices();
 
-    // choose OpenCL device to benchmark
-    size_t iDev;
-    while (iDev = chooseClDevice(), iDev > 0) {
-        cl::Device dev = clDevices[iDev - 1];
-        printClDeviceInfo(dev);
-        benchmarkClDevice(dev);
-    } //> while    
-    // process "no OpenCL devices" situation
-    if (iDev == -1) {
+    // prepare OpenCL devices
+    prepareClDevices();
+
+    // let user choose which OpenCL device to benchmark
+    if (clDevices.size() > 0) {
+        int iDev;
+        while (iDev = chooseClDevice(), iDev > 0) {
+            printClDeviceInfo(iDev - 1);
+            benchmarkClDevice(iDev - 1);
+        } //> while    
+    } else {
+        // process "no OpenCL devices" situation
         cout << "No OpenCL devices detected. Press any key to exit\n";
         _getch();
-    } //> if
+    }//> if
 
     // free test data
+    cleanupClDevices();
     freeTestData();
 
     cout << "bye\n";
@@ -95,6 +97,9 @@ int main() {
 } //> main() 
 // ================================================================================================
 
+/// <summary>
+/// Get list of all OpenCL devices installed in the system.
+/// </summary>
 void getClDevices() {
     clDevices.clear();
 
@@ -110,6 +115,10 @@ void getClDevices() {
     } //> for
 } //> getClDevices()
 
+/// <summary>
+/// Let user choose which OpenCL device to benchmark.
+/// </summary>
+/// <returns>Index of selected OpenCL device.</returns>
 int chooseClDevice() {
     if (clDevices.size() == 0) {        
         return -1;
@@ -141,24 +150,30 @@ int chooseClDevice() {
     } //> else > if
 } //> chooseClDevice()
 
-void printClDeviceInfo(cl::Device oclDevice) {
+/// <summary>
+/// Print information about selected OpenCL device.
+/// </summary>
+/// <param name="iDev">Index of OpenCL device.</param>
+void printClDeviceInfo(int iDev) {
     //cout << "Benchmarking " << oclDevice.getInfo<CL_DEVICE_NAME>() << "...\n";
     int nSM = 0;
     int nCores = 0;
 
+    cl::Device dev = clDevices[iDev];
+
     cout << "Device info:\n";
-    cout << "\tVendor: " << oclDevice.getInfo<CL_DEVICE_VENDOR>() << endl;
-    cout << "\tType: " << getDeviceTypeDescription(oclDevice.getInfo<CL_DEVICE_TYPE>()) << endl;
-    cout << "\tMemory - global: " << formatMemSizeInfo(oclDevice.getInfo<CL_DEVICE_GLOBAL_MEM_SIZE>()) << endl;
-    cout << "\tMemory - global cache: " << formatMemSizeInfo(oclDevice.getInfo<CL_DEVICE_GLOBAL_MEM_CACHE_SIZE>()) << endl;
-    cout << "\tMemory - local: " << formatMemSizeInfo(oclDevice.getInfo<CL_DEVICE_LOCAL_MEM_SIZE>()) << endl;
-    cout << "\tMax work group size: " << oclDevice.getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>() << endl;
-    nSM = oclDevice.getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>();
+    cout << "\tVendor: " << dev.getInfo<CL_DEVICE_VENDOR>() << endl;
+    cout << "\tType: " << getDeviceTypeDescription(dev.getInfo<CL_DEVICE_TYPE>()) << endl;
+    cout << "\tMemory - global: " << formatMemSizeInfo(dev.getInfo<CL_DEVICE_GLOBAL_MEM_SIZE>()) << endl;
+    cout << "\tMemory - global cache: " << formatMemSizeInfo(dev.getInfo<CL_DEVICE_GLOBAL_MEM_CACHE_SIZE>()) << endl;
+    cout << "\tMemory - local: " << formatMemSizeInfo(dev.getInfo<CL_DEVICE_LOCAL_MEM_SIZE>()) << endl;
+    cout << "\tMax work group size: " << dev.getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>() << endl;
+    nSM = dev.getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>();
     cout << "\tCompute units: " << nSM << endl;
-    if (oclDevice.getInfo<CL_DEVICE_VENDOR_ID>() == 0x10DE) {
+    if (dev.getInfo<CL_DEVICE_VENDOR_ID>() == 0x10DE) {
         // NVidia specific info according to https://www.khronos.org/registry/OpenCL/extensions/nv/cl_nv_device_attribute_query.txt
-        cl_uint majCompCapab = oclDevice.getInfo<CL_DEVICE_COMPUTE_CAPABILITY_MAJOR_NV>();
-        cl_uint minCompCapab = oclDevice.getInfo<CL_DEVICE_COMPUTE_CAPABILITY_MINOR_NV>();
+        cl_uint majCompCapab = dev.getInfo<CL_DEVICE_COMPUTE_CAPABILITY_MAJOR_NV>();
+        cl_uint minCompCapab = dev.getInfo<CL_DEVICE_COMPUTE_CAPABILITY_MINOR_NV>();
         cout << "\tCompute capability (NVidia): " << majCompCapab << '.' << minCompCapab << endl;
         // NVidia CUDA cores based on compute capability version (https://stackoverflow.com/questions/32530604/how-can-i-get-number-of-cores-in-cuda-device)
         nCores = getNvCudaCoresPerSm(majCompCapab, minCompCapab);
@@ -171,6 +186,12 @@ void printClDeviceInfo(cl::Device oclDevice) {
     cout << endl;
 } //> printClDeviceInfo()
 
+/// <summary>
+/// Get number of NVidia CUDA cores on specific GPU.
+/// </summary>
+/// <param name="verMajor">Major version.</param>
+/// <param name="verMinor">Minor version.</param>
+/// <returns></returns>
 int getNvCudaCoresPerSm(cl_uint verMajor, cl_uint verMinor) {
     int nCores = 0;
     switch (verMajor) {
@@ -208,11 +229,16 @@ int getNvCudaCoresPerSm(cl_uint verMajor, cl_uint verMinor) {
     return nCores;
 } //> getNvCudaCoresPerSm()
 
-void benchmarkClDevice(cl::Device oclDevice) {
-    cout << "\tRunning benchmark on workgroup size: " << 4 << "...";
+/// <summary>
+/// Benchmark selected OpenCL device.
+/// </summary>
+/// <param name="iDev">Index of selected OpenCL device to benchmark.</param>
+void benchmarkClDevice(int iDev) {
+    unsigned nWorkgroupSize = clDevicesData[iDev].nMaxWorkgoupSize;
+    cout << "\tRunning benchmark on workgroup size: " << nWorkgroupSize << "...";
 
     // prepare OpenCL devic for benchmarks
-    prepareClDeviceForBenchmark(oclDevice);
+    //prepareClDeviceForBenchmark(oclDevice);
 
     // prepare to performance measurement
     vector<double> timeValues;          // time values for current bench
@@ -221,8 +247,8 @@ void benchmarkClDevice(cl::Device oclDevice) {
     // run the kernel on specific ND range
     qpc_timer.reset();
     for (int iBench = 0; iBench < KERNEL_BENCHMARK_LOOPS; iBench++) {
-        clDevData.pCmdQueue->enqueueNDRangeKernel(*clDevData.pKernel, cl::NullRange, cl::NDRange(DATA_SIZE), cl::NDRange(4));
-        clDevData.pCmdQueue->finish();
+        clDevicesData[iDev].pCmdQueue->enqueueNDRangeKernel(*clDevicesData[iDev].pKernel, cl::NullRange, cl::NDRange(DATA_SIZE), cl::NDRange(nWorkgroupSize));
+        clDevicesData[iDev].pCmdQueue->finish();
 
         double timeMs = qpc_timer.resetMs();
         timeValues.push_back(timeMs);
@@ -232,7 +258,7 @@ void benchmarkClDevice(cl::Device oclDevice) {
     } //> for
 
     // cleanup after benchmark
-    cleanupClDeviceAfterBenchmark();
+    //cleanupClDeviceAfterBenchmark();
 
     // print benchmark times
     cout << "done\n";
@@ -241,56 +267,33 @@ void benchmarkClDevice(cl::Device oclDevice) {
     cout << "\tTimes, ms (avg, min, max): " << avgTime << ", " << minTime << ", " << maxTime << endl;
 } //> benchmarkClDevice()
 
-void prepareClDeviceForBenchmark(cl::Device dev) {
-    //cout << "\n\tBenchmarking device: " << oclDevice.getInfo< CL_DEVICE_NAME>() << "...";
+/// <summary>
+/// Free memory that was allocated for OpenCL devices data.
+/// </summary>
+void cleanupClDevices() {
+    for (int i = 0; i < clDevicesData.size(); i++) {
+        if (clDevicesData[i].pKernel)
+            delete clDevicesData[i].pKernel, clDevicesData[i].pKernel = nullptr;
+        if (clDevicesData[i].pOutputVec)
+            delete clDevicesData[i].pOutputVec, clDevicesData[i].pOutputVec = nullptr;
+        if (clDevicesData[i].pInputVec2)
+            delete clDevicesData[i].pInputVec2, clDevicesData[i].pInputVec2 = nullptr;
+        if (clDevicesData[i].pInputVec1)
+            delete clDevicesData[i].pInputVec1, clDevicesData[i].pInputVec1 = nullptr;
+        if (clDevicesData[i].pCmdQueue)
+            delete clDevicesData[i].pCmdQueue, clDevicesData[i].pCmdQueue = nullptr;
+        if (clDevicesData[i].pContext)
+            delete clDevicesData[i].pContext, clDevicesData[i].pContext = nullptr;
+    } //> for
+} //> cleanupClDevices()
 
-    // create context for device
-    vector<cl::Device> contextDevices;
-    contextDevices.push_back(dev);
-    clDevData.pContext = new cl::Context(contextDevices);
-
-    // create command queue for device
-    clDevData.pCmdQueue = new cl::CommandQueue(*clDevData.pContext, dev);
-
-    // clear output vector
-    fill_n(pOutputVector, DATA_SIZE, static_cast<float>(0));
-
-    // create memory buffers for device
-    clDevData.pInputVec1 = new cl::Buffer(*clDevData.pContext, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, DATA_SIZE * sizeof(float), ::pInputVector1);
-    clDevData.pInputVec2 = new cl::Buffer(*clDevData.pContext, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, DATA_SIZE * sizeof(float), ::pInputVector2);
-    clDevData.pOutputVec = new cl::Buffer(*clDevData.pContext, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, DATA_SIZE * sizeof(float), ::pOutputVector);
-
-    // create kernel from source file
-    ifstream sourceFile("oclFile.cl");
-    std::string sourceCode(std::istreambuf_iterator<char>(sourceFile), (std::istreambuf_iterator<char>()));
-    cl::Program::Sources source(1, make_pair(sourceCode.c_str(), sourceCode.length() + 1));
-    cl::Program program = cl::Program(*clDevData.pContext, source);
-    program.build(contextDevices);
-    clDevData.pKernel = new cl::Kernel(program, "TestKernel");
-
-    // set arguments to kernel
-    int iArg = 0;
-    clDevData.pKernel->setArg(iArg++, *clDevData.pInputVec1);
-    clDevData.pKernel->setArg(iArg++, *clDevData.pInputVec2);
-    clDevData.pKernel->setArg(iArg++, *clDevData.pOutputVec);
-    clDevData.pKernel->setArg(iArg++, DATA_SIZE);
-} //> prepareClDeviceForBenchmark()
-
-void cleanupClDeviceAfterBenchmark() {
-    if (clDevData.pKernel)
-        delete clDevData.pKernel, clDevData.pKernel = nullptr;
-    if (clDevData.pOutputVec)
-        delete clDevData.pOutputVec, clDevData.pOutputVec = nullptr;
-    if (clDevData.pInputVec2)
-        delete clDevData.pInputVec2, clDevData.pInputVec2 = nullptr;
-    if (clDevData.pInputVec1)
-        delete clDevData.pInputVec1, clDevData.pInputVec1 = nullptr;
-    if (clDevData.pCmdQueue)
-        delete clDevData.pCmdQueue, clDevData.pCmdQueue = nullptr;
-    if (clDevData.pContext)
-        delete clDevData.pContext, clDevData.pContext = nullptr;
-} //> cleanupClDeviceAfterBenchmark()
-
+/// <summary>
+/// Calculate time statistics for benchmark.
+/// </summary>
+/// <param name="timeValues">Input time values.</param>
+/// <param name="minTime">Output minimum time.</param>
+/// <param name="maxTime">Output maximum time.</param>
+/// <param name="avgTime">Output average time.</param>
 void getBenchTimes(vector<double> &timeValues, double &minTime, double &maxTime, double &avgTime) {
     sort(timeValues.begin(), timeValues.end());
     double totalTime = accumulate(timeValues.begin(), timeValues.end(), 0.0);
@@ -305,25 +308,92 @@ void getBenchTimes(vector<double> &timeValues, double &minTime, double &maxTime,
     //cout << "\t\tMax: " << maxTime << " ms" << endl << endl;
 } //> printBenchTimes()
 
+/// <summary>
+/// Allocate memory and fill values for benchmark.
+/// </summary>
 void prepareTestData() {
+    cout << "Preparing test data for benchmark...";
     // TODO: попробовать сделать через vector
     ::pInputVector1 = new float[DATA_SIZE];
     ::pInputVector2 = new float[DATA_SIZE];
     ::pOutputVector = new float[DATA_SIZE];
 
+    // fill input vectors with random values
     srand(static_cast<unsigned int>(time(NULL)));
     for (int i = 0; i < DATA_SIZE; i++) {
         ::pInputVector1[i] = static_cast<float>(rand() * 1000.0 / RAND_MAX);
         ::pInputVector2[i] = static_cast<float>(rand() * 1000.0 / RAND_MAX);
     } //> for
+
+    // clear output vector
+    fill_n(pOutputVector, DATA_SIZE, static_cast<float>(0));
+    cout << "done\n";
 } //> prepareTestData()
 
+/// <summary>
+/// Prepare all OpenCL devices for benchmarks.
+/// </summary>
+void prepareClDevices() {
+    cout << "Preparing OpenCL devices...";
+
+    // read kernel source file
+    ifstream sourceFile("oclFile.cl");
+    std::string sourceCode(std::istreambuf_iterator<char>(sourceFile), (std::istreambuf_iterator<char>()));
+    cl::Program::Sources source(1, make_pair(sourceCode.c_str(), sourceCode.length() + 1));
+
+    // iterate through each OpenCL device and prepare data for benchmark
+    clDevicesData.clear();
+    for (int i = 0; i < clDevices.size(); i++ ) {
+        cl::Device dev = clDevices[i];
+        ClDeviceBenchmarkData clDevData;
+        clDevData.nMaxWorkgoupSize = dev.getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>();
+
+        // create context for device
+        vector<cl::Device> contextDevices;
+        contextDevices.push_back(dev);
+        clDevData.pContext = new cl::Context(contextDevices);
+
+        // create command queue for device
+        clDevData.pCmdQueue = new cl::CommandQueue(*clDevData.pContext, dev);
+
+        // create memory buffers for device
+        clDevData.pInputVec1 = new cl::Buffer(*clDevData.pContext, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, DATA_SIZE * sizeof(float), ::pInputVector1);
+        clDevData.pInputVec2 = new cl::Buffer(*clDevData.pContext, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, DATA_SIZE * sizeof(float), ::pInputVector2);
+        clDevData.pOutputVec = new cl::Buffer(*clDevData.pContext, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, DATA_SIZE * sizeof(float), ::pOutputVector);
+
+        // create kernel from source file
+        cl::Program program = cl::Program(*clDevData.pContext, source);
+        program.build(contextDevices);
+        clDevData.pKernel = new cl::Kernel(program, "TestKernel");
+
+        // set arguments to kernel
+        int iArg = 0;
+        clDevData.pKernel->setArg(iArg++, *clDevData.pInputVec1);
+        clDevData.pKernel->setArg(iArg++, *clDevData.pInputVec2);
+        clDevData.pKernel->setArg(iArg++, *clDevData.pOutputVec);
+        clDevData.pKernel->setArg(iArg++, DATA_SIZE);
+
+        // save data for current device
+        clDevicesData.push_back(clDevData);
+    } //> for
+
+    cout << "done\n";
+} //> prepareClDevices()
+
+/// <summary>
+/// Free test data memory.
+/// </summary>
 void freeTestData() {
     delete[] ::pInputVector1;
     delete[] ::pInputVector2;
     delete[] ::pOutputVector;
 } //> freeTestData()
 
+/// <summary>
+/// Format text of memory size to user-friendly form.
+/// </summary>
+/// <param name="ms"></param>
+/// <returns></returns>
 string formatMemSizeInfo(cl_ulong ms) {
     int divides = 0;
     while (ms > 1024)
@@ -344,6 +414,11 @@ string formatMemSizeInfo(cl_ulong ms) {
     return retval;
 } //> formatMemSizeInfo()
 
+/// <summary>
+/// Remove multiple spaces from text.
+/// </summary>
+/// <param name="s">Input text to be processed. The value is being changed itself.</param>
+/// <returns>Output processed text.</returns>
 string removeMultiSpaces(string s) {
     size_t p = 0;
     while (p = s.find("  ", p), p != string::npos) {
@@ -352,6 +427,11 @@ string removeMultiSpaces(string s) {
     return s;
 } //> removeMultiSpaces()
 
+/// <summary>
+/// Get text representation of OpenCL device type.
+/// </summary>
+/// <param name="dt">Input device type.</param>
+/// <returns>Text representation of device type.</returns>
 string getDeviceTypeDescription(cl_device_type dt) {
     switch (dt) {
     case CL_DEVICE_TYPE_CPU:
