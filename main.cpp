@@ -61,7 +61,7 @@ vector <cl::Device> clDevices;                                      // list of a
 vector <ClDeviceBenchmarkData> clDevicesData;                       // OpenCL devices data used for benchmarking
 GQPC_Timer qpc_timer;                                               // high definition timer for benchmark measurements
 
-// main() funcion =================================================================================
+// main() funcion =========================================================================================================================
 int main() {
     // greetings to user
     cout << "OpenCL benchmark: how WorkGroupSize parameter affects calculation performance\n\n";
@@ -95,7 +95,7 @@ int main() {
     cout << "bye\n";
     return 0;
 } //> main() 
-// ================================================================================================
+// ========================================================================================================================================
 
 /// <summary>
 /// Get list of all OpenCL devices installed in the system.
