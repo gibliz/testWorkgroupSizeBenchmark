@@ -38,23 +38,23 @@ struct ClDeviceBenchmarkData {
 
 // global constants
 const unsigned DATA_SIZE = 20 * (1 << 20);                      // about 20M items for benchmark
-const unsigned int KERNEL_BENCHMARK_LOOPS = 200;                // number of kernel benchmarks on OpenCL device
+const unsigned int KERNEL_BENCHMARK_LOOPS = 200;                // number of benchmark loops on single OpenCL device
 
                                                       
-void getClDevices();                                                // get all OpenCL devices installed in the system
-int chooseClDevice();                                               // let user select OpenCL device to benchmark
-void printClDeviceInfo(int iDev);                                   // print OpenCL device info
-int getNvCudaCoresPerSm(cl_uint verMajor, cl_uint verMinor);        // get number of NVidia CUDA cores per one streaming multiprocessor (SM)
-void benchmarkClDevice(int iDev);                                   // do single OpenCL device benchmark (top-level function)
-void cleanupClDevices();                                            // cleanup OpenCL devices data
+void getClDevices();
+int chooseClDevice();
+void printClDeviceInfo(int iDev);
+int getNvCudaCoresPerSm(cl_uint verMajor, cl_uint verMinor);
+void benchmarkClDevice(int iDev);
+void cleanupClDevices();
 void getBenchTimes(vector<double>& timeValues,
-    double& minTime, double& maxTime, double& avgTime);             // get benchmark times
-void prepareTestData();                                             // prepare data for benchmark
-void prepareClDevices();                                            // prepare OpenCL devices for benchmark
-void freeTestData();                                                // free memory allocated for benchmark
-string formatMemSizeInfo(cl_ulong ms);                              // format memory size to user-friendly string
-string removeMultiSpaces(string s);                                 // remove multiple spaces in string
-string getDeviceTypeDescription(cl_device_type dt);                 // get device type string description
+    double& minTime, double& maxTime, double& avgTime);
+void prepareTestData();
+void prepareClDevices();
+void freeTestData();
+string formatMemSizeInfo(cl_ulong ms);
+string removeMultiSpaces(string s);
+string getDeviceTypeDescription(cl_device_type dt);
 
 // global variables
 float* pInputVector1;                                               // benchmark input data 1
