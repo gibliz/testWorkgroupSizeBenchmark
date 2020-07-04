@@ -460,7 +460,7 @@ string formatMemSizeInfo(cl_ulong ms) {
     case 7: retval += "EiB"; break;
     case 8: retval += "ZiB"; break;
     case 9: retval += "YiB"; break;
-    default: retval += "???";  break;
+    default: retval += "???"; break;
     } //> switch
     return retval;
 } //> formatMemSizeInfo()
@@ -468,7 +468,7 @@ string formatMemSizeInfo(cl_ulong ms) {
 /// <summary>
 /// Remove multiple spaces from text.
 /// </summary>
-/// <param name="s">Input text to be processed. The value is being changed itself.</param>
+/// <param name="s">Input text to be processed. The variable is being changed itself.</param>
 /// <returns>Output processed text.</returns>
 string removeMultiSpaces(string s) {
     size_t p = 0;
