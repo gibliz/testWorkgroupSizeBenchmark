@@ -3,7 +3,6 @@
 
 // TODO: добавить проходку по разным значениям параметра WorkgroupSize
 // TODO: добавить автом определение кол-ва прогонов бенчмарка на основе производительности устройства
-// TODO: добавить предварительную прогонку бенчмарка для получения устоявшегося результата (первые прогоны очень длительные)
 // TODO: добавить обработку исключений
 
 #pragma comment(lib, "opencl.lib")
@@ -47,12 +46,14 @@ void getClDevices();
 int chooseClDevice();
 void printClDeviceInfo(int iDev);
 int getNvCudaCoresPerSm(cl_uint verMajor, cl_uint verMinor);
-void benchmarkClDevice(int iDev);
+void benchmarkClDeviceMultiPass(int iDev);
+double benchmarkClDeviceSinglePass(int iDev, int nWorkgroupSize);
 void cleanupClDevices();
 void getBenchTimes(vector<double>& timeValues,
     double& minTime, double& maxTime, double& avgTime);
 void prepareTestData();
 void prepareClDevices();
+void warmupClDevices();
 string formatMemSizeInfo(cl_ulong ms);
 string removeMultiSpaces(string s);
 string getDeviceTypeDescription(cl_device_type dt);
@@ -61,14 +62,14 @@ string getDeviceTypeDescription(cl_device_type dt);
 std::vector<float> InputVector1;                                    // benchmark input data 1
 std::vector<float> InputVector2;                                    // benchmark input data 2
 std::vector<float> OutputVector;                                    // benchmark output data
-vector <cl::Device> clDevices;                                      // list of all OpenCL devices installed in the system
-vector <ClDeviceBenchmarkData> clDevicesData;                       // OpenCL devices data used for benchmarking
+std::vector <cl::Device> clDevices;                                 // list of all OpenCL devices installed in the system
+std::vector <ClDeviceBenchmarkData> clDevicesData;                  // OpenCL devices data used for benchmarking
 GQPC_Timer qpc_timer;                                               // high definition timer for benchmark measurements
 
 // main() funcion =========================================================================================================================
 int main() {
     // greetings to user
-    cout << "OpenCL benchmark: how WorkGroupSize parameter affects calculation performance\n\n";
+    std::cout << "OpenCL benchmark: how WorkGroupSize parameter affects calculation performance\n\n";
 
     // prepare test data    
     prepareTestData();    
@@ -76,19 +77,20 @@ int main() {
     // get all OpenCL devices in the system 
     getClDevices();
 
-    // prepare OpenCL devices
+    // prepare and warm up OpenCL devices
     prepareClDevices();
+    warmupClDevices();
 
     // let user choose which OpenCL device to benchmark
     if (clDevices.size() > 0) {
         int iDev;
         while (iDev = chooseClDevice(), iDev > 0) {
             printClDeviceInfo(iDev - 1);
-            benchmarkClDevice(iDev - 1);
+            benchmarkClDeviceMultiPass(iDev - 1);
         } //> while    
     } else {
         // process "no OpenCL devices" situation
-        cout << "No OpenCL devices detected. Press any key to exit\n";
+        std::cout << "No OpenCL devices detected. Press any key to exit\n";
         _getch();
     }//> if
 
@@ -96,7 +98,7 @@ int main() {
     cleanupClDevices();
     //freeTestData();
 
-    cout << "bye\n";
+    std::cout << "bye\n";
     return 0;
 } //> main() 
 // ========================================================================================================================================
@@ -106,13 +108,13 @@ int main() {
 /// </summary>
 void getClDevices() {
     // get platforms
-    vector<cl::Platform> platforms;
+    std::vector<cl::Platform> platforms;
     cl::Platform::get(&platforms);
 
     // get devices for each platform
     clDevices.clear();
     for (int iPlatf = 0; iPlatf < platforms.size(); iPlatf++) {
-        vector<cl::Device> devices;
+        std::vector<cl::Device> devices;
         platforms[iPlatf].getDevices(CL_DEVICE_TYPE_ALL, &devices);
         clDevices.insert(clDevices.end(), devices.begin(), devices.end());
     } //> for
@@ -127,12 +129,12 @@ int chooseClDevice() {
         return -1;
     } else {
         // choose device to benchmark
-        cout << "\nList of all OpenCL devices in the system:\n";
+        std::cout << "\nList of all OpenCL devices in the system:\n";
         for (int i = 0; i < clDevices.size(); i++) {
-            cout << "\t" << i + 1 << " - " << removeMultiSpaces( clDevices[i].getInfo<CL_DEVICE_NAME>() ) << endl;
+            std::cout << "\t" << i + 1 << " - " << removeMultiSpaces( clDevices[i].getInfo<CL_DEVICE_NAME>() ) << std::endl;
         } //> for
 
-        cout << "Choose one to benchmark (or esc to exit): ";
+        std::cout << "Choose one to benchmark (or esc to exit): ";
         int ch;
         do {
             ch = _getch();
@@ -233,42 +235,47 @@ int getNvCudaCoresPerSm(cl_uint verMajor, cl_uint verMinor) {
 } //> getNvCudaCoresPerSm()
 
 /// <summary>
-/// Benchmark selected OpenCL device.
+/// Benchmark selected OpenCL device with multiple passes.
 /// </summary>
 /// <param name="iDev">Index of selected OpenCL device to benchmark.</param>
-void benchmarkClDevice(int iDev) {
+void benchmarkClDeviceMultiPass(int iDev) {
     unsigned nWorkgroupSize = clDevicesData[iDev].nMaxWorkgoupSize;
     cout << "\tRunning benchmark on workgroup size: " << nWorkgroupSize << "...";
 
-    // prepare OpenCL devic for benchmarks
-    //prepareClDeviceForBenchmark(oclDevice);
-
     // prepare to performance measurement
-    vector<double> timeValues;          // time values for current bench
+    std::vector<double> timeValues;          // time values for current bench
+    timeValues.reserve(KERNEL_BENCHMARK_LOOPS);
     timeValues.clear();
 
-    // run the kernel on specific ND range
-    qpc_timer.reset();
+    // run benchmark many times
     for (int iBench = 0; iBench < KERNEL_BENCHMARK_LOOPS; iBench++) {
-        clDevicesData[iDev].pCmdQueue->enqueueNDRangeKernel(*clDevicesData[iDev].pKernel, cl::NullRange, cl::NDRange(DATA_SIZE), cl::NDRange(nWorkgroupSize));
-        clDevicesData[iDev].pCmdQueue->finish();
-
-        double timeMs = qpc_timer.resetMs();
+        double timeMs = benchmarkClDeviceSinglePass(iDev, nWorkgroupSize);
         timeValues.push_back(timeMs);
-
-        // read output buffer into a host
-        //pQueue->enqueueReadBuffer(oclOutputVector, CL_TRUE, 0, DATA_SIZE * sizeof(float), pOutputVector);
     } //> for
-
-    // cleanup after benchmark
-    //cleanupClDeviceAfterBenchmark();
 
     // print benchmark times
     cout << "done\n";
     double minTime, maxTime, avgTime;
     getBenchTimes(timeValues, minTime, maxTime, avgTime);
     cout << "\tTimes, ms (avg, min, max): " << avgTime << ", " << minTime << ", " << maxTime << endl;
-} //> benchmarkClDevice()
+} //> benchmarkClDeviceMultiPass()
+
+/// <summary>
+/// Benchmark selected OpenCL device with single pass.
+/// </summary>
+/// <param name="iDev">Index of selected OpenCL device to benchmark.</param>
+/// <param name="nWorkgroupSize">Size of OpenCL workgroup used for benchmark.</param>
+/// <returns>Time (in ms) took to do the benchmark.</returns>
+double benchmarkClDeviceSinglePass(int iDev, int nWorkgroupSize) {
+    // run the kernel on specific ND range
+    qpc_timer.reset();
+    clDevicesData[iDev].pCmdQueue->enqueueNDRangeKernel(*clDevicesData[iDev].pKernel, cl::NullRange,
+        cl::NDRange(DATA_SIZE), cl::NDRange(nWorkgroupSize));
+    //clDevicesData[iDev].pCmdQueue->enqueueReadBuffer(*clDevicesData[iDev].pOutputVec, CL_TRUE, 0, DATA_SIZE * sizeof(float), OutputVector.data());
+    clDevicesData[iDev].pCmdQueue->finish();
+
+    return qpc_timer.resetMs();
+} //> benchmarkClDeviceSinglePass()
 
 /// <summary>
 /// Free memory that was allocated for OpenCL devices data.
@@ -298,7 +305,7 @@ void cleanupClDevices() {
 /// <param name="maxTime">Output maximum time.</param>
 /// <param name="avgTime">Output average time.</param>
 void getBenchTimes(vector<double> &timeValues, double &minTime, double &maxTime, double &avgTime) {
-    sort(timeValues.begin(), timeValues.end());
+    std::sort(timeValues.begin(), timeValues.end());
     double totalTime = accumulate(timeValues.begin(), timeValues.end(), 0.0);
     avgTime = totalTime / timeValues.size();
     minTime = timeValues[0];
@@ -346,9 +353,9 @@ void prepareClDevices() {
     std::string sourceCode(std::istreambuf_iterator<char>(sourceFile), (std::istreambuf_iterator<char>()));
     cl::Program::Sources source(1, make_pair(sourceCode.c_str(), sourceCode.length() + 1));
 
-    // iterate through each OpenCL device and prepare data for benchmark
+    // iterate through each OpenCL device and prepare it for benchmark
     clDevicesData.clear();
-    for (int i = 0; i < clDevices.size(); i++ ) {
+    for (int i = 0; i < clDevices.size(); i++) {
         cl::Device dev = clDevices[i];
         ClDeviceBenchmarkData clDevData;
         clDevData.nMaxWorkgoupSize = static_cast<unsigned>(dev.getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>());
@@ -364,9 +371,9 @@ void prepareClDevices() {
         // create memory buffers for device
         clDevData.pInputVec1 = new cl::Buffer(*clDevData.pContext, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
             DATA_SIZE * sizeof(float), ::InputVector1.data());
-        clDevData.pInputVec2 = new cl::Buffer(*clDevData.pContext, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, 
+        clDevData.pInputVec2 = new cl::Buffer(*clDevData.pContext, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
             DATA_SIZE * sizeof(float), ::InputVector2.data());
-        clDevData.pOutputVec = new cl::Buffer(*clDevData.pContext, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, 
+        clDevData.pOutputVec = new cl::Buffer(*clDevData.pContext, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
             DATA_SIZE * sizeof(float), ::OutputVector.data());
 
         // create kernel from source file
@@ -384,20 +391,65 @@ void prepareClDevices() {
         // save data for current device
         clDevicesData.push_back(clDevData);
     } //> for
-
     cout << "done\n";
 } //> prepareClDevices()
 
 /// <summary>
+/// Warm up each OpenCL device by running some benchmark loops, so it will be prepared before future user benchmarks.
+/// </summary>
+void warmupClDevices() {
+    cout << "Warming up OpenCL devices...";
+
+    const int WARMUP_BENCH_LOOPS_MAX = 20;
+    const int WARMUP_BENCH_SAMPLE_SIZE = 5;
+    const double WARMUP_BENCH_TOLERANCE_FACTOR = 1.1;
+    std::vector<double> times;
+    times.reserve(WARMUP_BENCH_LOOPS_MAX);
+
+    for (int iDev = 0; iDev < clDevices.size(); iDev++) {
+        times.clear();
+        bool bFinished = false;
+        size_t i = 0;
+        do {
+            size_t sz = times.size();
+
+            // add next benchmark time, store maximum WARMUP_BENCH_SAMPLE_SIZE values
+            if (sz >= WARMUP_BENCH_SAMPLE_SIZE)
+                times.erase(times.begin());
+            times.push_back(benchmarkClDeviceSinglePass(iDev, clDevicesData[iDev].nMaxWorkgoupSize));
+
+            // calculate maximum time difference           
+            if (sz >= WARMUP_BENCH_SAMPLE_SIZE) {
+                double mn, mx;
+                mn = mx = times[0];
+                for (double v : times)
+                    mn = min(mn, v), mx = max(mx, v);
+
+                // last 5 run durations for each OpenCL device must vary within specified tolerance to finish warming-up
+                if (mn * WARMUP_BENCH_TOLERANCE_FACTOR >= mx)
+                    bFinished = true;
+            } //> if
+
+            // finish if reached maximum allowed number of loops
+            if (++i >= WARMUP_BENCH_LOOPS_MAX)
+                bFinished = true;
+        } while (!bFinished);
+
+        cout << i << endl;
+    } //> for
+    cout << "done\n";
+} //> warmupClDevices()
+
+/// <summary>
 /// Format text of memory size to user-friendly form.
 /// </summary>
-/// <param name="ms"></param>
-/// <returns></returns>
+/// <param name="ms">Memory size to be formatted.</param>
+/// <returns>Text representing memory size in user-friendly form.</returns>
 string formatMemSizeInfo(cl_ulong ms) {
     int divides = 0;
     while (ms > 1024)
         ms /= 1024, ++divides;
-    string retval = to_string(ms) + ' ';
+    string retval = std::to_string(ms) + ' ';
     switch (divides) {
     case 1: retval += "KiB"; break;
     case 2: retval += "MiB"; break;
