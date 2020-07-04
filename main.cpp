@@ -2,7 +2,9 @@
 // Testing OpenCL WorkgroupSize parameter in enqueueNDRangeKernel() for calculation performance
 
 // TODO: добавить проходку по разным значениям параметра WorkgroupSize
-// TODO: добавить автом определение кол-ва циклов бенчмарка на основе длительности
+// TODO: добавить автом определение кол-ва прогонов бенчмарка на основе производительности устройства
+// TODO: добавить предварительную прогонку бенчмарка для получения устоявшегося результата (первые прогоны очень длительные)
+// TODO: добавить обработку исключений
 
 #pragma comment(lib, "opencl.lib")
 #define __CL_ENABLE_EXCEPTIONS
@@ -40,7 +42,7 @@ struct ClDeviceBenchmarkData {
 const unsigned DATA_SIZE = 20 * (1 << 20);                      // about 20M items for benchmark
 const unsigned int KERNEL_BENCHMARK_LOOPS = 200;                // number of benchmark loops on single OpenCL device
 
-                                                      
+
 void getClDevices();
 int chooseClDevice();
 void printClDeviceInfo(int iDev);
@@ -51,15 +53,14 @@ void getBenchTimes(vector<double>& timeValues,
     double& minTime, double& maxTime, double& avgTime);
 void prepareTestData();
 void prepareClDevices();
-void freeTestData();
 string formatMemSizeInfo(cl_ulong ms);
 string removeMultiSpaces(string s);
 string getDeviceTypeDescription(cl_device_type dt);
 
 // global variables
-float* pInputVector1;                                               // benchmark input data 1
-float* pInputVector2;                                               // benchmark input data 2
-float* pOutputVector;                                               // benchmark output data
+std::vector<float> InputVector1;                                    // benchmark input data 1
+std::vector<float> InputVector2;                                    // benchmark input data 2
+std::vector<float> OutputVector;                                    // benchmark output data
 vector <cl::Device> clDevices;                                      // list of all OpenCL devices installed in the system
 vector <ClDeviceBenchmarkData> clDevicesData;                       // OpenCL devices data used for benchmarking
 GQPC_Timer qpc_timer;                                               // high definition timer for benchmark measurements
@@ -69,7 +70,7 @@ int main() {
     // greetings to user
     cout << "OpenCL benchmark: how WorkGroupSize parameter affects calculation performance\n\n";
 
-    // prepare memory and test data    
+    // prepare test data    
     prepareTestData();    
 
     // get all OpenCL devices in the system 
@@ -93,7 +94,7 @@ int main() {
 
     // free test data
     cleanupClDevices();
-    freeTestData();
+    //freeTestData();
 
     cout << "bye\n";
     return 0;
@@ -104,13 +105,12 @@ int main() {
 /// Get list of all OpenCL devices installed in the system.
 /// </summary>
 void getClDevices() {
-    clDevices.clear();
-
     // get platforms
     vector<cl::Platform> platforms;
     cl::Platform::get(&platforms);
 
     // get devices for each platform
+    clDevices.clear();
     for (int iPlatf = 0; iPlatf < platforms.size(); iPlatf++) {
         vector<cl::Device> devices;
         platforms[iPlatf].getDevices(CL_DEVICE_TYPE_ALL, &devices);
@@ -316,20 +316,22 @@ void getBenchTimes(vector<double> &timeValues, double &minTime, double &maxTime,
 /// </summary>
 void prepareTestData() {
     cout << "Preparing test data for benchmark...";
-    // TODO: попробовать сделать через vector
-    ::pInputVector1 = new float[DATA_SIZE];
-    ::pInputVector2 = new float[DATA_SIZE];
-    ::pOutputVector = new float[DATA_SIZE];
+    
+    // allocate memory
+    InputVector1.resize(DATA_SIZE);
+    InputVector2.resize(DATA_SIZE);
+    OutputVector.resize(DATA_SIZE);
 
     // fill input vectors with random values
     srand(static_cast<unsigned int>(time(NULL)));
     for (int i = 0; i < DATA_SIZE; i++) {
-        ::pInputVector1[i] = static_cast<float>(rand() * 1000.0 / RAND_MAX);
-        ::pInputVector2[i] = static_cast<float>(rand() * 1000.0 / RAND_MAX);
+        InputVector1[i] = static_cast<float>(rand() * 1000.0 / RAND_MAX);
+        InputVector2[i] = static_cast<float>(rand() * 1000.0 / RAND_MAX);
     } //> for
 
     // clear output vector
-    fill_n(pOutputVector, DATA_SIZE, static_cast<float>(0));
+    std::fill_n(OutputVector.begin(), OutputVector.size(), static_cast<float>(0.0));
+
     cout << "done\n";
 } //> prepareTestData()
 
@@ -360,9 +362,12 @@ void prepareClDevices() {
         clDevData.pCmdQueue = new cl::CommandQueue(*clDevData.pContext, dev);
 
         // create memory buffers for device
-        clDevData.pInputVec1 = new cl::Buffer(*clDevData.pContext, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, DATA_SIZE * sizeof(float), ::pInputVector1);
-        clDevData.pInputVec2 = new cl::Buffer(*clDevData.pContext, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, DATA_SIZE * sizeof(float), ::pInputVector2);
-        clDevData.pOutputVec = new cl::Buffer(*clDevData.pContext, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, DATA_SIZE * sizeof(float), ::pOutputVector);
+        clDevData.pInputVec1 = new cl::Buffer(*clDevData.pContext, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+            DATA_SIZE * sizeof(float), ::InputVector1.data());
+        clDevData.pInputVec2 = new cl::Buffer(*clDevData.pContext, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, 
+            DATA_SIZE * sizeof(float), ::InputVector2.data());
+        clDevData.pOutputVec = new cl::Buffer(*clDevData.pContext, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, 
+            DATA_SIZE * sizeof(float), ::OutputVector.data());
 
         // create kernel from source file
         cl::Program program = cl::Program(*clDevData.pContext, source);
@@ -382,15 +387,6 @@ void prepareClDevices() {
 
     cout << "done\n";
 } //> prepareClDevices()
-
-/// <summary>
-/// Free test data memory.
-/// </summary>
-void freeTestData() {
-    delete[] ::pInputVector1;
-    delete[] ::pInputVector2;
-    delete[] ::pOutputVector;
-} //> freeTestData()
 
 /// <summary>
 /// Format text of memory size to user-friendly form.
