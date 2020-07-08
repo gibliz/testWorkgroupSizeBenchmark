@@ -39,8 +39,7 @@ struct ClDeviceBenchmarkData {
 
 // global constants
 const unsigned DATA_SIZE = 20 * (1 << 20);                      // about 20M items for benchmark
-const unsigned int KERNEL_BENCHMARK_LOOPS = 200;                // number of benchmark loops on single OpenCL device
-
+const unsigned int BENCHMARK_DURATION_MS = 3000;                // benchmark duration
 
 void getClDevices();
 int chooseClDevice();
@@ -49,8 +48,6 @@ int getNvCudaCoresPerSm(cl_uint verMajor, cl_uint verMinor);
 void benchmarkClDeviceMultiPass(int iDev);
 double benchmarkClDeviceSinglePass(int iDev, int nWorkgroupSize);
 void cleanupClDevices();
-void getBenchTimes(vector<double>& timeValues,
-    double& minTime, double& maxTime, double& avgTime);
 void prepareTestData();
 void prepareClDevices();
 void warmupClDevices();
@@ -96,7 +93,6 @@ int main() {
 
     // free test data
     cleanupClDevices();
-    //freeTestData();
 
     std::cout << "bye\n";
     return 0;
@@ -242,22 +238,17 @@ void benchmarkClDeviceMultiPass(int iDev) {
     unsigned nWorkgroupSize = clDevicesData[iDev].nMaxWorkgoupSize;
     cout << "\tRunning benchmark on workgroup size: " << nWorkgroupSize << "...";
 
-    // prepare to performance measurement
-    std::vector<double> timeValues;          // time values for current bench
-    timeValues.reserve(KERNEL_BENCHMARK_LOOPS);
-    timeValues.clear();
-
-    // run benchmark many times
-    for (int iBench = 0; iBench < KERNEL_BENCHMARK_LOOPS; iBench++) {
-        double timeMs = benchmarkClDeviceSinglePass(iDev, nWorkgroupSize);
-        timeValues.push_back(timeMs);
-    } //> for
+    // run benchmark for specified duration
+    size_t iBench = 0;
+    GQPC_Timer tmr;
+    while (tmr.getMs() < BENCHMARK_DURATION_MS) {
+        benchmarkClDeviceSinglePass(iDev, nWorkgroupSize);
+        ++iBench;
+    } //> while
 
     // print benchmark times
     cout << "done\n";
-    double minTime, maxTime, avgTime;
-    getBenchTimes(timeValues, minTime, maxTime, avgTime);
-    cout << "\tTimes, ms (avg, min, max): " << avgTime << ", " << minTime << ", " << maxTime << endl;
+    cout << "\tScore: " << iBench * 1000 / BENCHMARK_DURATION_MS << endl;
 } //> benchmarkClDeviceMultiPass()
 
 /// <summary>
@@ -296,27 +287,6 @@ void cleanupClDevices() {
             delete clDevicesData[i].pContext, clDevicesData[i].pContext = nullptr;
     } //> for
 } //> cleanupClDevices()
-
-/// <summary>
-/// Calculate time statistics for benchmark.
-/// </summary>
-/// <param name="timeValues">Input time values.</param>
-/// <param name="minTime">Output minimum time.</param>
-/// <param name="maxTime">Output maximum time.</param>
-/// <param name="avgTime">Output average time.</param>
-void getBenchTimes(vector<double> &timeValues, double &minTime, double &maxTime, double &avgTime) {
-    std::sort(timeValues.begin(), timeValues.end());
-    double totalTime = accumulate(timeValues.begin(), timeValues.end(), 0.0);
-    avgTime = totalTime / timeValues.size();
-    minTime = timeValues[0];
-    maxTime = timeValues[timeValues.size() - 1];
-    //double medianTime = timeValues[timeValues.size() / 2];
-    //cout << "\t\tBench info: " << timeValues.size() << " runs, each on " << DATA_SIZE << " items" << endl;
-    //cout << "\t\tAvg: " << averageTime << " ms" << endl;
-    ////cout << "Avg: " << averageTime << " ms" << endl;
-    //cout << "\t\tMin: " << minTime << " ms" << endl;
-    //cout << "\t\tMax: " << maxTime << " ms" << endl << endl;
-} //> printBenchTimes()
 
 /// <summary>
 /// Allocate memory and fill values for benchmark.
@@ -435,7 +405,7 @@ void warmupClDevices() {
                 bFinished = true;
         } while (!bFinished);
 
-        cout << i << endl;
+        //cout << i << endl;
     } //> for
     cout << "done\n";
 } //> warmupClDevices()
