@@ -2,7 +2,6 @@
 // Testing OpenCL WorkgroupSize parameter in enqueueNDRangeKernel() for calculation performance
 
 // TODO: добавить проходку по разным значениям параметра WorkgroupSize
-// TODO: добавить автом определение кол-ва прогонов бенчмарка на основе производительности устройства
 // TODO: добавить обработку исключений
 
 #pragma comment(lib, "opencl.lib")
@@ -188,7 +187,7 @@ void printClDeviceInfo(int iDev) {
 } //> printClDeviceInfo()
 
 /// <summary>
-/// Get number of NVidia CUDA cores on specific GPU.
+/// Get number of NVidia CUDA cores for specific GPU.
 /// </summary>
 /// <param name="verMajor">Major version.</param>
 /// <param name="verMinor">Minor version.</param>
