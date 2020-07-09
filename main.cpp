@@ -1,7 +1,6 @@
 // main.cpp 
 // Testing OpenCL WorkgroupSize parameter in enqueueNDRangeKernel() for calculation performance
 
-// TODO: добавить проходку по разным значениям параметра WorkgroupSize
 // TODO: добавить обработку исключений
 
 #pragma comment(lib, "opencl.lib")
