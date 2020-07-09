@@ -2,6 +2,7 @@
 // Testing OpenCL WorkgroupSize parameter in enqueueNDRangeKernel() for calculation performance
 
 // TODO: добавить обработку исключений
+// TODO: добавить работу с одинарной точностью (float) или двойной (double) - чтобы можно было выбирать
 
 #pragma comment(lib, "opencl.lib")
 #define __CL_ENABLE_EXCEPTIONS
