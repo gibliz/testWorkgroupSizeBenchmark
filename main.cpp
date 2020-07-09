@@ -234,20 +234,41 @@ int getNvCudaCoresPerSm(cl_uint verMajor, cl_uint verMinor) {
 /// </summary>
 /// <param name="iDev">Index of selected OpenCL device to benchmark.</param>
 void benchmarkClDeviceMultiPass(int iDev) {
-    unsigned nWorkgroupSize = clDevicesData[iDev].nMaxWorkgoupSize;
-    cout << "\tRunning benchmark on workgroup size: " << nWorkgroupSize << "...";
+    cout << "\tRunning benchmark..." << endl;
 
-    // run benchmark for specified duration
-    size_t iBench = 0;
-    GQPC_Timer tmr;
-    while (tmr.getMs() < BENCHMARK_DURATION_MS) {
-        benchmarkClDeviceSinglePass(iDev, nWorkgroupSize);
-        ++iBench;
-    } //> while
+    unsigned nWorkgroupSize = 1; // clDevicesData[iDev].nMaxWorkgoupSize;
+    do {
+        // run benchmark for specified duration
+        size_t iBench = 0;
+        GQPC_Timer tmr;
+        while (tmr.getMs() < BENCHMARK_DURATION_MS) {
+            benchmarkClDeviceSinglePass(iDev, nWorkgroupSize);
+            ++iBench;
+        } //> while
 
-    // print benchmark times
-    cout << "done\n";
-    cout << "\tScore: " << iBench * 1000 / BENCHMARK_DURATION_MS << endl;
+        // print benchmark times
+        cout << "\t\tWorkgrop size: " << nWorkgroupSize << ", score: " << iBench * 1000 / BENCHMARK_DURATION_MS << endl;
+
+        nWorkgroupSize *= 2;
+    } while (nWorkgroupSize <= clDevicesData[iDev].nMaxWorkgoupSize);
+    //cout << "\tRunning benchmark on workgroup size: " << nWorkgroupSize << "...";
+    cout << "\t...done\n";
+
+
+    //unsigned nWorkgroupSize = clDevicesData[iDev].nMaxWorkgoupSize;
+    //cout << "\tRunning benchmark on workgroup size: " << nWorkgroupSize << "...";
+
+    //// run benchmark for specified duration
+    //size_t iBench = 0;
+    //GQPC_Timer tmr;
+    //while (tmr.getMs() < BENCHMARK_DURATION_MS) {
+    //    benchmarkClDeviceSinglePass(iDev, nWorkgroupSize);
+    //    ++iBench;
+    //} //> while
+
+    //// print benchmark times
+    //cout << "done\n";
+    //cout << "\tScore: " << iBench * 1000 / BENCHMARK_DURATION_MS << endl;
 } //> benchmarkClDeviceMultiPass()
 
 /// <summary>
